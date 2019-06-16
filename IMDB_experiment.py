@@ -1,40 +1,30 @@
-"""
-IMDBデータセットを用いて、RNNによって感情予測（ネガポジ判定）を行う
-- データデットの読み込み
-- 単語埋め込み（Embedding）
-- tf.scanを用いたRNNの素直な実装
-- RNNの学習・予測
-"""
-### 各種ライブラリのインポート
 import numpy as np
 import tensorflow as tf
-
 from sklearn.metrics import f1_score
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.datasets import imdb
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tqdm import tqdm
-
 from src.RNN_tensorflow import Embedding, RNN_scan, RNN, LSTM
 
-# logの計算（オーバーフロー対策）
+# Calculating log (Overflow Prevention)
 def tf_log(x):
     return tf.log(tf.clip_by_value(x, 1e-10, x))
 
 def main():
-    ## データセットの読み込み
+    ## import dataset
     pad_index = 0
     num_words = 10000
     (x_train, t_train), (x_test, t_test) = imdb.load_data(num_words=num_words)
     x_train, x_valid, t_train, t_valid = train_test_split(x_train, t_train, test_size=0.2, random_state=42)
 
-    # paddingが多くなると計算的に非効率になるのでpaddingを少なくするためにデータを降順にソートする
+    # Since more padding is computationally inefficient, the data is sorted in descending order to reduce padding.
     x_train_lens = [len(com) for com in x_train]
     sorted_train_indexes = sorted(range(len(x_train_lens)), key=lambda x: -x_train_lens[x])
     x_train = [x_train[idx] for idx in sorted_train_indexes]
     t_train = [t_train[idx] for idx in sorted_train_indexes]
 
-    tf.reset_default_graph() # グラフ初期化
+    tf.reset_default_graph() # initialization
     emb_dim = 100
     hid_dim = 50
 
@@ -43,9 +33,8 @@ def main():
 
     seq_len = tf.reduce_sum(tf.cast(tf.not_equal(x, pad_index), tf.int32), axis=1)
 
-    ### 計算グラフの構築&パラメータの更新
-
-    # Plain RNN
+    ### Building Calculation Graphs & Updating Parameters
+    ## Plain RNN
     # h = Embedding(num_words, emb_dim)(x)
     # h = RNN_scan(emb_dim, hid_dim, seq_len)(h)
     # h = RNN(hid_dim, seq_len)(h)
@@ -79,7 +68,7 @@ def main():
                 start = i * batch_size
                 end = start + batch_size
                 
-                x_train_batch = np.array(pad_sequences(x_train[start:end], padding='post', value=pad_index)) # バッチ毎のPadding
+                x_train_batch = np.array(pad_sequences(x_train[start:end], padding='post', value=pad_index)) # Padding per batch
                 t_train_batch = np.array(t_train[start:end])[:, None]
 
                 _, train_cost = sess.run([train, cost], feed_dict={x: x_train_batch, t: t_train_batch})
@@ -92,7 +81,7 @@ def main():
                 start = i * batch_size
                 end = start + batch_size
                 
-                x_valid_pad = np.array(pad_sequences(x_valid[start:end], padding='post', value=pad_index)) # バッチ毎のPadding
+                x_valid_pad = np.array(pad_sequences(x_valid[start:end], padding='post', value=pad_index)) # Padding per batch
                 t_valid_pad = np.array(t_valid[start:end])[:, None]
                 
                 pred, valid_cost = sess.run([test, cost], feed_dict={x: x_valid_pad, t: t_valid_pad})
