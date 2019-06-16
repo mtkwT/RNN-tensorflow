@@ -1,8 +1,8 @@
 import numpy as np
 import tensorflow as tf
 
-### 各層クラスの実装
-## Embedding層
+### implementation of each layers class
+## Embedding layer
 class Embedding:
     def __init__(self, vocabulary_size, embedding_size, scale=0.08):
         self.V = tf.Variable(tf.random_normal([vocabulary_size, embedding_size], stddev=scale), name='V')
@@ -10,14 +10,14 @@ class Embedding:
     def __call__(self, x):
         return tf.nn.embedding_lookup(self.V, x)
 
-## tf.scanを用いたRNNの実装
-# Embedding層でベクトルに変換したものを入力とする
+## imprement RNN by tf.scan
+# The input is converted into a vector by the Embedding layer.
 class RNN_scan:
     def __init__(self, in_dim, hid_dim, seq_len=None, scale=0.08):
         self.in_dim = in_dim
         self.hid_dim = hid_dim
         
-        # tanhを活性化関数として用いるので、glorotの初期値で重みを初期化する
+        # Since tanh is used as the activation function, the weight is initialized with the initial value of gorot.
         glorot = tf.cast(tf.sqrt(6/(in_dim + hid_dim*2)), tf.float32)
         self.W = tf.Variable(tf.random_uniform([in_dim+hid_dim, hid_dim], minval=-glorot, maxval=glorot), name='W')
         self.b = tf.Variable(tf.zeros([hid_dim]), name='b')
@@ -29,18 +29,17 @@ class RNN_scan:
         def fn(h_prev, x_and_m):
             x_t, m_t = x_and_m
             inputs = tf.concat([x_t, h_prev], -1)
-            # RNN
             h_t = tf.nn.tanh(tf.matmul(inputs, self.W) + self.b)
-            # マスクの適用: m_tが1の部分はそのままh_tが適用され、0の部分は無視される
+            # Apply mask: h_t is applied to m_t at 1, and m_t at 0 is ignored
             h_t = m_t * h_t + (1 - m_t) * h_prev
           
             return h_t
 
-        # 入力の時間順化
+        # Correct inputs chronologically
         # shape: [batch_size, max_seqence_length, in_dim] -> [max_seqence_length, batch_size, in_dim]
         x_tmaj = tf.transpose(x, perm=[1, 0, 2])
         
-        # マスクの生成＆時間順化
+        # Generate Mask & Correct inputs chronologically
         mask = tf.cast(tf.sequence_mask(self.seq_len, tf.shape(x)[1]), tf.float32)
         mask_tmaj = tf.transpose(tf.expand_dims(mask, axis=-1), perm=[1, 0, 2])
         
@@ -52,7 +51,7 @@ class RNN_scan:
         
         return h[-1]
 
-## Cell構造を用いたRNNの実装
+## imprement RNN by Cell structure
 class RNN:
     def __init__(self, hid_dim, seq_len = None, initial_state = None):
         self.cell = tf.nn.rnn_cell.BasicRNNCell(hid_dim)
@@ -63,11 +62,11 @@ class RNN:
         if self.initial_state is None:
             self.initial_state = self.cell.zero_state(tf.shape(x)[0], tf.float32)
             
-        # outputsは各系列長分以降は0になるので注意
+        # Note that outputs are 0 after the length of each series.
         outputs, state = tf.nn.dynamic_rnn(self.cell, x, self.seq_len, self.initial_state)
         return tf.gather_nd(outputs, tf.stack([tf.range(tf.shape(x)[0]), self.seq_len-1], axis=1))
 
-## tf.scanを用いたLSTMの実装
+## imprement LSTM by tf.scan
 class LSTM:
     def __init__(self, in_dim, hid_dim, seq_len=None, initial_state=None):
         self.in_dim = in_dim
@@ -75,23 +74,23 @@ class LSTM:
 
         glorot = tf.cast(tf.sqrt(6/(in_dim + hid_dim*2)), tf.float32)
 
-        # 入力ゲート
+        # input gate
         self.W_i = tf.Variable(tf.random_uniform([in_dim + hid_dim, hid_dim], minval=-glorot, maxval=glorot), name='W_i')
         self.b_i  = tf.Variable(tf.zeros([hid_dim]), name='b_i')
         
-        # 忘却ゲート
+        # forget gate
         self.W_f = tf.Variable(tf.random_uniform([in_dim + hid_dim, hid_dim], minval=-glorot, maxval=glorot), name='W_f')
         self.b_f  = tf.Variable(tf.zeros([hid_dim]), name='b_f')
 
-        # 出力ゲート
+        # output gate
         self.W_o = tf.Variable(tf.random_uniform([in_dim + hid_dim, hid_dim], minval=-glorot, maxval=glorot), name='W_o')
         self.b_o  = tf.Variable(tf.zeros([hid_dim]), name='b_o')
 
-        # セル
+        # cell
         self.W_c = tf.Variable(tf.random_uniform([in_dim + hid_dim, hid_dim], minval=-glorot, maxval=glorot), name='W_c')
         self.b_c  = tf.Variable(tf.zeros([hid_dim]), name='b_c')
 
-        # マスク
+        # mask
         self.seq_len = seq_len
         
         self.initial_state = initial_state
@@ -103,27 +102,26 @@ class LSTM:
             
             inputs = tf.concat([x_t, h_prev], -1)
             
-            # 各ゲート
+            # each gates
             i_t = tf.nn.sigmoid(tf.matmul(inputs, self.W_i) + self.b_i)
             f_t = tf.nn.sigmoid(tf.matmul(inputs, self.W_f) + self.b_f)
             o_t = tf.nn.sigmoid(tf.matmul(inputs, self.W_o) + self.b_o)
 
-            # セル
+            # cell
             c_t = f_t * c_prev + i_t * tf.nn.tanh(tf.matmul(inputs, self.W_c) + self.b_c)
 
-            # 隠れ状態
+            # hidden state
             h_t = o_t * tf.nn.tanh(c_t)
             
-            # マスクの適用
+            # apply mask
             c_t = m_t * c_t + (1 - m_t) * c_prev
             h_t = m_t * h_t + (1 - m_t) * h_prev
 
             return tf.stack([c_t, h_t])
 
-        # 入力の時間順化
+        # Correct inputs chronologically
         x_tmaj = tf.transpose(x, perm=[1, 0, 2])
-        
-        # マスクの生成＆時間順化
+        # Generate Mask & Correct inputs chronologicallyスクの生成＆時間順化
         mask = tf.cast(tf.sequence_mask(self.seq_len, tf.shape(x)[1]), tf.float32)
         mask_tmaj = tf.transpose(tf.expand_dims(mask, axis=-1), perm=[1, 0, 2])
         
